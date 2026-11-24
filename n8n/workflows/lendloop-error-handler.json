@@ -1,0 +1,30 @@
+{
+  "id": "LendLoopErrors01",
+  "name": "LendLoop - Error handler",
+  "active": false,
+  "settings": { "executionOrder": "v1", "saveDataSuccessExecution": "all" },
+  "nodes": [
+    {
+      "id": "a7c2e9d4-1b3f-4e6a-9d2c-5f8e0b1a2c01",
+      "name": "On workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "id": "a7c2e9d4-1b3f-4e6a-9d2c-5f8e0b1a2c02",
+      "name": "Alert (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Runs whenever a LendLoop workflow fails after its retries, so failures are never silent.\n// The execution is also kept in n8n's Executions list (saveDataErrorExecution = all).\n// Replace console.error with a Slack/email alert in production.\nconst e = $input.first().json;\nconst summary = {\n  workflow: e.workflow?.name,\n  executionId: e.execution?.id,\n  url: e.execution?.url,\n  failedNode: e.execution?.lastNodeExecuted,\n  error: e.execution?.error?.message,\n  at: new Date().toISOString(),\n};\nconsole.error('[LendLoop ALERT] workflow failed', JSON.stringify(summary));\nreturn [{ json: summary }];"
+      }
+    }
+  ],
+  "connections": {
+    "On workflow error": { "main": [[{ "node": "Alert (mock)", "type": "main", "index": 0 }]] }
+  }
+}

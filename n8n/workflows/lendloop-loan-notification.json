@@ -1,0 +1,118 @@
+{
+  "id": "LendLoopNotify01",
+  "name": "LendLoop - Loan notification",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "LendLoopErrors01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e01",
+      "name": "Loan event webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "5d0a6c1e-6a39-4d0c-9c86-3c2a7b1f0a11",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lendloop-loan-event",
+        "responseMode": "responseNode",
+        "options": { "rawBody": true }
+      }
+    },
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e02",
+      "name": "Verify signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Verifies the HMAC Convex puts on every loan event: hex(HMAC_SHA256(secret, `${timestamp}.${rawBody}`)).\n// The secret comes from the LENDLOOP_SHARED_SECRET env var, never from this workflow.\nconst crypto = require('crypto');\nconst secret = $env.LENDLOOP_SHARED_SECRET;\nif (!secret || secret.length < 32) throw new Error('LENDLOOP_SHARED_SECRET is not configured');\n\nconst item = $input.first();\nconst headers = item.json.headers || {};\nconst timestamp = String(headers['x-lendloop-timestamp'] || '');\nconst signature = String(headers['x-lendloop-signature'] || '').toLowerCase();\n\n// Prefer the exact raw bytes; fall back to re-serialising the parsed body\n// (identical for Convex's compact JSON.stringify output).\nlet raw;\ntry {\n  raw = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8');\n} catch (e) {\n  raw = JSON.stringify(item.json.body);\n}\n\nconst fresh = /^\\d+$/.test(timestamp) && Math.abs(Date.now() - Number(timestamp)) < 5 * 60 * 1000;\nconst expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${raw}`).digest('hex');\nconst valid = fresh && signature.length === expected.length &&\n  crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));\n\nif (!valid) return [{ json: { valid: false, reason: fresh ? 'bad signature' : 'stale or missing timestamp' } }];\n\nconst body = JSON.parse(raw);\n// Keep only the fields this workflow needs (data minimisation).\nreturn [{ json: {\n  valid: true,\n  eventId: body.eventId,\n  event: body.event,\n  toolName: body.toolName,\n  startDate: body.startDate,\n  endDate: body.endDate,\n  recipient: { firstName: body.recipient.firstName, email: body.recipient.email },\n} }];"
+      }
+    },
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e03",
+      "name": "Signature valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e04",
+      "name": "Build message (dedupe)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, -100],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Convex retries until it gets a 2xx, so the same eventId can arrive twice if a\n// response was lost. Remember recent ids and skip duplicates.\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || {};\nconst e = $input.first().json;\nconst now = Date.now();\nfor (const [id, at] of Object.entries(store.seen)) if (now - at > 7 * 864e5) delete store.seen[id];\nif (store.seen[e.eventId]) return [{ json: { duplicate: true, eventId: e.eventId } }];\nstore.seen[e.eventId] = now;\n\nconst range = `${e.startDate} to ${e.endDate}`;\nconst text = {\n  request_created: `Hi ${e.recipient.firstName}, a neighbour asked to borrow your ${e.toolName} (${range}). Open LendLoop to approve or decline.`,\n  request_cancelled: `Hi ${e.recipient.firstName}, the request for your ${e.toolName} (${range}) was cancelled.`,\n  request_approved: `Good news ${e.recipient.firstName}! Your request for the ${e.toolName} (${range}) was approved.`,\n  request_declined: `Hi ${e.recipient.firstName}, your request for the ${e.toolName} (${range}) was declined.`,\n  loan_returned: `Thanks ${e.recipient.firstName}! The ${e.toolName} has been marked as returned.`,\n}[e.event] || `LendLoop update about ${e.toolName}.`;\n\nreturn [{ json: { duplicate: false, eventId: e.eventId, to: e.recipient.email, subject: 'LendLoop update', text } }];"
+      }
+    },
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e05",
+      "name": "Send notification (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, -100],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Mock channel: logs the message. Swap this node for Send Email / Slack / Discord\n// (with an n8n credential) to deliver for real.\nconst m = $input.first().json;\nif (m.duplicate) return [{ json: { ok: true, duplicate: true } }];\nconsole.log(`[LendLoop notification] to=${m.to} :: ${m.text}`);\nreturn [{ json: { ok: true, delivered: 'mock-log', eventId: m.eventId } }];"
+      }
+    },
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e06",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1200, -100],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": { "responseCode": 200 }
+      }
+    },
+    {
+      "id": "8b1d4a52-0d0c-4a43-9a51-1a0f2b6c7e07",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [720, 120],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: $json.reason }) }}",
+        "options": { "responseCode": 401 }
+      }
+    }
+  ],
+  "connections": {
+    "Loan event webhook": { "main": [[{ "node": "Verify signature", "type": "main", "index": 0 }]] },
+    "Verify signature": { "main": [[{ "node": "Signature valid?", "type": "main", "index": 0 }]] },
+    "Signature valid?": {
+      "main": [
+        [{ "node": "Build message (dedupe)", "type": "main", "index": 0 }],
+        [{ "node": "Respond 401", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build message (dedupe)": { "main": [[{ "node": "Send notification (mock)", "type": "main", "index": 0 }]] },
+    "Send notification (mock)": { "main": [[{ "node": "Respond 200", "type": "main", "index": 0 }]] }
+  }
+}
