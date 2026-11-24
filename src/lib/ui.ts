@@ -37,9 +37,19 @@ export function todayLocal(): string {
 }
 
 export const STATUS_STYLE: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-800",
-  approved: "bg-emerald-100 text-emerald-800",
-  declined: "bg-stone-200 text-stone-700",
-  cancelled: "bg-stone-200 text-stone-700",
-  returned: "bg-sky-100 text-sky-800",
+  pending: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+  approved: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+  declined: "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+  cancelled: "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
+  returned: "bg-sky-50 text-sky-700 ring-1 ring-sky-200",
 };
+
+export function formatRange(start: string, end: string): string {
+  const f = (s: string) =>
+    new Date(`${s}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return start === end ? f(start) : `${f(start)} – ${f(end)}`;
+}
+
+export function daysBetween(start: string, end: string): number {
+  return Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1;
+}
