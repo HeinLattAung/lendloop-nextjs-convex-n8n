@@ -76,7 +76,8 @@ npm install
    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
    CLERK_SECRET_KEY=sk_test_...
    ```
-2. Enable the **Convex** integration (Clerk dashboard → Integrations → Convex), or create a JWT template named `convex`. Copy the **Frontend API URL** (the issuer, e.g. `https://xxx.clerk.accounts.dev`).
+2. Clerk dashboard → **JWT templates** → *Add new template* → choose the **Convex** preset (name `convex`) → Save. The preset includes the `name` and `email` claims that LendLoop uses for display names and the admin email check. Leave the separate "Convex" toggle under *Integrations* **off**: its session token has no email claim, so admins would never be recognised.
+3. Copy the **Frontend API URL** (the issuer, e.g. `https://xxx.clerk.accounts.dev`).
 
 ### 2. Convex
 

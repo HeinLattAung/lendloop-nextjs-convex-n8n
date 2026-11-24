@@ -21,7 +21,8 @@ export const store = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new ConvexError("Not signed in.");
     const email = (identity.email ?? "").toLowerCase();
-    const name = identity.name ?? identity.givenName ?? email.split("@")[0] ?? "Neighbor";
+    // The "convex" JWT template must include name and email claims (see README).
+    const name = identity.name || identity.givenName || email.split("@")[0] || "Neighbor";
     const role = email && adminEmails().has(email) ? "admin" : "user";
 
     const existing = await ctx.db
