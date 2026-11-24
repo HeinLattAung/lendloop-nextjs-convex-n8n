@@ -1,4 +1,5 @@
-@import "tailwindcss";
+/* Scan src/ explicitly so classes are found no matter which directory starts the dev server. */
+@import "tailwindcss" source("..");
 
 @theme {
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
